@@ -1,0 +1,55 @@
+// Parsed from WARDS.md — Kisii County wards and sub-counties
+
+export const WARDS = [
+  { name: 'Chitago Borabu', subCounty: 'South Mugirango' },
+  { name: 'Ibeno', subCounty: 'Nyaribari Chache' },
+  { name: 'Majoge Bassi', subCounty: 'Bomachoge Chache' },
+  { name: 'Bogeka', subCounty: 'Kitutu Chache South' },
+  { name: 'Monyerero', subCounty: 'Kitutu Chache North' },
+  { name: 'Nyakoe', subCounty: 'Kitutu Chache North' },
+  { name: 'Marani', subCounty: 'Kitutu Chache North' },
+  { name: 'Tabaka', subCounty: 'South Mugirango' },
+  { name: "Boikang'a", subCounty: 'South Mugirango' },
+  { name: 'Moticho', subCounty: 'South Mugirango' },
+  { name: 'Bogusero', subCounty: 'Kitutu Chache South' },
+  { name: 'Ichuni', subCounty: 'Nyaribari Masaba' },
+  { name: 'Bokimonge', subCounty: 'Bomachoge Borabu' },
+  { name: 'Birongo', subCounty: 'Nyaribari Chache' },
+  { name: 'Masige East', subCounty: 'Bobasi' },
+  { name: 'Kegogi', subCounty: 'Kitutu Chache North' },
+  { name: 'Masimba', subCounty: 'Nyaribari Masaba' },
+  { name: 'Kiamokama', subCounty: 'Nyaribari Masaba' },
+  { name: 'Keumbu', subCounty: 'Nyaribari Chache' },
+  { name: 'Bombaba', subCounty: 'Bomachoge Borabu' },
+  { name: 'Gesusu', subCounty: 'Nyaribari Masaba' },
+  { name: 'Bassi Central', subCounty: 'Bobasi' },
+  { name: 'Bassi Boitangare', subCounty: 'Bobasi' },
+  { name: 'Bomorenda', subCounty: 'Bonchari' },
+  { name: 'Sensi', subCounty: 'Kitutu Chache North' },
+  { name: 'Sameta Mokwerero', subCounty: 'Bobasi' },
+  { name: 'Masige West', subCounty: 'Bobasi' },
+  { name: 'Nyacheki', subCounty: 'Bobasi' },
+  { name: 'Riana', subCounty: 'Bonchari' },
+  { name: 'Kitutu Central', subCounty: 'Kitutu Chache South' },
+  { name: 'Bomariba', subCounty: 'Bonchari' },
+  { name: 'Bogetenga', subCounty: 'South Mugirango' },
+  { name: 'Bogiakumu', subCounty: 'Bonchari' },
+  { name: 'Bassi Chache', subCounty: 'Bobasi' },
+  { name: 'Getenga', subCounty: 'South Mugirango' },
+  { name: 'Boochi Borabu', subCounty: 'Bomachoge Borabu' },
+  { name: 'Kiogoro', subCounty: 'Nyaribari Chache' },
+  { name: 'Bobaracho', subCounty: 'Nyaribari Chache' },
+  { name: 'Nyamasibi', subCounty: 'Nyaribari Masaba' },
+  { name: 'Boochi-Tendere', subCounty: 'Bomachoge Chache' },
+  { name: 'Bosoti Sengera', subCounty: 'Bomachoge Chache' },
+  { name: 'Magenche', subCounty: 'Bomachoge Borabu' },
+  { name: 'Nyatieko', subCounty: 'Kitutu Chache South' },
+  { name: 'Bassi Bogetaorio', subCounty: 'Bobasi' },
+  { name: 'Kisii Central', subCounty: 'Nyaribari Chache' },
+];
+
+export const SUB_COUNTIES = [...new Set(WARDS.map(w => w.subCounty))].sort();
+
+export function getWardsForSubCounty(subCounty) {
+  return WARDS.filter(w => w.subCounty === subCounty).map(w => w.name).sort();
+}
