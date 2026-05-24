@@ -6,7 +6,7 @@ const Header = ({ onAddClick }) => {
   return (
     <header style={layout.header}>
       <h1 style={{ fontWeight: 'bold', color: colors.textPrimary, margin: 0, fontSize: '24px' }}>
-        Project Indexer
+        Project Tracker
       </h1>
       <button
         onClick={onAddClick}
