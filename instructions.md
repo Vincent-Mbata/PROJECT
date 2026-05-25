@@ -15,11 +15,13 @@ Before starting, ensure you have the following installed:
 1. Open your PostgreSQL management tool (e.g., pgAdmin, psql).
 2. Create a new database named `project_indexer_db`.
 3. Run the initialization script located at `backend/init-db.sql` to create the necessary tables, constraints, indices, and triggers.
-4. **Note:** If the `projects` table already exists without the `updated_at` column, run:
+4. Run the migration script located at `backend/migrations/002_handover_inspection.sql` to add handover, inspection, equipment acceptance, and event photos tables.
+   - **Note:** You can run migrations using the provided helper: `cd backend && node run-migration.js`
+5. **Note:** If the `projects` table already exists without the `updated_at` column, run:
    ```sql
    ALTER TABLE projects ADD COLUMN IF NOT EXISTS updated_at TIMESTAMP DEFAULT NOW();
    ```
-5. **Note:** If the `project_photos` table already exists without the `is_cover` column, run:
+6. **Note:** If the `project_photos` table already exists without the `is_cover` column, run:
    ```sql
    ALTER TABLE project_photos ADD COLUMN IF NOT EXISTS is_cover BOOLEAN DEFAULT FALSE;
    ```
@@ -30,7 +32,7 @@ Before starting, ensure you have the following installed:
 3. Update the `DATABASE_URL` to match your PostgreSQL credentials:
    ```env
    DATABASE_URL="postgresql://your_username:***@localhost:5432/project_indexer_db"
-   PORT=5000
+   PORT=3000
    UPLOAD_PATH=./uploads
    CORS_ORIGIN="http://localhost:5173"
    ```
@@ -44,16 +46,15 @@ Before starting, ensure you have the following installed:
 2. Start the backend server:
    ```bash
    npm start
-   cd /f/PROJECT/backend && node server.js 2>&1
    ```
-   The server should be running at `http://localhost:5000`.
+   The server should be running at `http://localhost:3000`.
 
 ### 4. Frontend Configuration
 1. Navigate to the `frontend` folder.
-2. The frontend uses Vite's proxy to forward `/api` requests to the backend on port 5173. No `.env` file is needed for the default setup.
+2. The frontend uses Vite's proxy to forward `/api` and `/uploads` requests to the backend on port 3000. No `.env` file is needed for the default setup.
 3. If you need to set a custom API URL, create `.env` in the frontend folder:
    ```env
-   VITE_API_URL=http://localhost:5000
+   VITE_API_URL=http://localhost:3000
    ```
 
 ### 5. Frontend Installation & Running
@@ -64,9 +65,8 @@ Before starting, ensure you have the following installed:
 2. Start the frontend development server:
    ```bash
    npm run dev
-   cd /f/PROJECT/frontend && npx vite --host 0.0.0.0 --port 5173 2>&1
    ```
-   The frontend should be accessible at the URL provided in the console (typically `http://localhost:5173`).
+   The frontend should be accessible at `http://localhost:5173`.
 
 ---
 
@@ -82,43 +82,84 @@ Before starting, ensure you have the following installed:
 
 ## API Documentation
 
-### 1. Get All Projects
-- **Endpoint:** `GET /api/projects`
-- **Description:** Returns a list of all projects with their photos and cover photo.
-- **Response:** Array of project objects, each containing:
-  - `photos` — ordered array of photo URLs
-  - `cover_photo` — URL of the cover photo (or `null` if not set)
+### Projects
 
-### 2. Create a Project
+#### 1. Get All Projects
+- **Endpoint:** `GET /api/projects`
+- **Description:** Returns all projects with photos, cover photo, and handover/inspection/acceptance summary data.
+- **Response:** Array of project objects with `photos`, `cover_photo`, `handover`, `inspections`, `equipment_acceptance`.
+
+#### 2. Create a Project
 - **Endpoint:** `POST /api/projects`
 - **Content-Type:** `multipart/form-data`
 - **Required Fields:** `title`
-- **Key Fields:** `budget`, `project_cost`, `cost_to_date` (Must follow: Budget ≥ Project Cost ≥ Cost to Date ≥ 0), `category` (Works, Equipment, or Both), `sub_county`, `ward_area`.
-- **Response:** Created project object with photos array.
+- **Key Fields:** `budget`, `project_cost`, `cost_to_date` (Must follow: Budget >= Project Cost >= Cost to Date >= 0), `category` (Works, Equipment, or Both), `sub_county`, `ward_area`.
 
-### 3. Update a Project
+#### 3. Update a Project
 - **Endpoint:** `PUT /api/projects/:id`
 - **Content-Type:** `multipart/form-data`
-- **Description:** Updates project metadata and allows adding new photos to the existing set.
-- **Validation:** Same financial constraints as creation.
-- **Response:** Updated project object with photos array.
+- **Description:** Updates project metadata and appends new photos.
 
-### 5. Delete a Project
+#### 4. Delete a Project
 - **Endpoint:** `DELETE /api/projects/:id`
-- **Description:** Permanently removes the project and deletes all associated photo files from the server storage.
-- **Response:** Success message.
+- **Description:** Permanently removes the project and all associated photo files.
 
-### 6. Set Cover Photo
+#### 5. Set Cover Photo
 - **Endpoint:** `PUT /api/projects/:id/cover-photo`
-- **Content-Type:** `application/json`
 - **Body:** `{ "photo_url": "/uploads/filename.jpg" }`
-- **Description:** Sets the specified photo as the project's cover photo. All other photos for the project are automatically unset as cover. The cover photo is displayed on the project card.
-- **Response:** Success message.
 
-### 7. Delete a Photo
+#### 6. Delete a Photo
 - **Endpoint:** `DELETE /api/projects/:id/photos/:photoId`
-- **Description:** Deletes a single photo from a project. Removes both the database record and the file from the filesystem. If the deleted photo was the cover, the cover is cleared.
-- **Response:** Success message with `deleted_url` and `was_cover` flag.
+
+### Handovers (Works/Both projects only)
+
+#### 7. Get Handover
+- **Endpoint:** `GET /api/projects/:id/handover`
+- **Description:** Returns the site handover with photos.
+
+#### 8. Create/Update Handover
+- **Endpoint:** `POST /api/projects/:id/handover`
+- **Content-Type:** `multipart/form-data`
+- **Fields:** `handover_date`, `notes`, `metadata` (JSON), `photos` (files)
+- **Description:** Creates or updates the site handover. Records initial site condition.
+
+#### 9. Delete Handover
+- **Endpoint:** `DELETE /api/projects/:id/handover`
+
+### Inspections (Works/Both projects only)
+
+#### 10. List Inspections
+- **Endpoint:** `GET /api/projects/:id/inspections`
+- **Description:** Returns all inspections (up to 4) with photos.
+
+#### 11. Create/Update Inspection
+- **Endpoint:** `POST /api/projects/:id/inspections`
+- **Content-Type:** `multipart/form-data`
+- **Fields:** `inspection_number` (1-4), `inspection_date`, `notes`, `metadata` (JSON), `photos` (files)
+- **Description:** Creates or updates a specific inspection. Records progress photos.
+
+#### 12. Delete Inspection
+- **Endpoint:** `DELETE /api/projects/:id/inspections/:inspectionNumber`
+
+### Equipment Acceptance (Equipment/Both projects only)
+
+#### 13. Get Equipment Acceptance
+- **Endpoint:** `GET /api/projects/:id/equipment-acceptance`
+- **Description:** Returns the equipment acceptance with photos and decision.
+
+#### 14. Create/Update Equipment Acceptance
+- **Endpoint:** `POST /api/projects/:id/equipment-acceptance`
+- **Content-Type:** `multipart/form-data`
+- **Fields:** `acceptance_date`, `decision` (accepted/rejected/pending), `notes`, `metadata` (JSON), `photos` (files)
+
+#### 15. Delete Equipment Acceptance
+- **Endpoint:** `DELETE /api/projects/:id/equipment-acceptance`
+
+### Event Photos
+
+#### 16. Delete Event Photo
+- **Endpoint:** `DELETE /api/event-photos/:photoId`
+- **Description:** Deletes a single event photo (works for handover, inspection, or acceptance photos).
 
 ---
 
@@ -126,32 +167,49 @@ Before starting, ensure you have the following installed:
 
 ### Example: Create Project with curl
 ```bash
-curl -X POST http://localhost:5000/api/projects \
+curl -X POST http://localhost:3000/api/projects \
   -F "title=New Bridge Project" \
   -F "category=Works" \
   -F "sub_county=Bobasi" \
-  -F "ward_area=Bassi Central" \
+  -F "ward_area=Bassi Bogetaorio" \
   -F "budget=1000000" \
   -F "project_cost=800000" \
   -F "cost_to_date=400000" \
   -F "photos=@/path/to/image1.jpg"
 ```
 
+### Example: Create Handover with curl
+```bash
+curl -X POST http://localhost:3000/api/projects/1/handover \
+  -F "handover_date=2025-01-15" \
+  -F "notes=Site handed over to contractor" \
+  -F "photos=@/path/to/handover1.jpg" \
+  -F "photos=@/path/to/handover2.jpg"
+```
+
+### Example: Create Inspection with curl
+```bash
+curl -X POST http://localhost:3000/api/projects/1/inspections \
+  -F "inspection_number=1" \
+  -F "inspection_date=2025-02-01" \
+  -F "notes=Foundation work progressing well" \
+  -F "photos=@/path/to/insp1.jpg"
+```
+
+### Example: Create Equipment Acceptance with curl
+```bash
+curl -X POST http://localhost:3000/api/projects/2/equipment-acceptance \
+  -F "acceptance_date=2025-03-01" \
+  -F "decision=accepted" \
+  -F "notes=Equipment meets specifications" \
+  -F "photos=@/path/to/equip1.jpg"
+```
+
 ### Example: Set Cover Photo with curl
 ```bash
-curl -X PUT http://localhost:5000/api/projects/1/cover-photo \
+curl -X PUT http://localhost:3000/api/projects/1/cover-photo \
   -H "Content-Type: application/json" \
   -d '{"photo_url":"/uploads/photos-1234567890.jpg"}'
-```
-
-### Example: Delete Project with curl
-```bash
-curl -X DELETE http://localhost:5000/api/projects/1
-```
-
-### Example: Delete a Photo with curl
-```bash
-curl -X DELETE http://localhost:5000/api/projects/1/photos/5
 ```
 
 ## Sub-Counties and Wards
@@ -163,12 +221,13 @@ The application ships with real Kisii County data (45 wards across 9 sub-countie
 **Ward selection:** In the Add/Edit Project modal, the Ward Area dropdown is populated dynamically based on the selected Sub-County. The Filter Bar's Ward Area dropdown also filters by the selected Sub-County.
 
 ## Folder Structure
-- `backend/uploads/`: Local storage for all uploaded project images.
-- `backend/routes/`: API route definitions.
-- `backend/middleware/`: Request processing logic (e.g., file upload handling).
+- `backend/uploads/`: Local storage for all uploaded project and event images.
+- `backend/routes/`: API route definitions (projectRoutes.js, handoverInspectionRoutes.js).
+- `backend/middleware/`: Request processing logic (file upload handling).
+- `backend/migrations/`: Database migration scripts.
 - `backend/db.js`: Database connection pool configuration.
 - `frontend/`: React + Vite frontend application.
 - `frontend/src/data/`: Static data (wards and sub-counties).
 - `frontend/src/styles/`: Shared style constants and utilities.
-- `frontend/src/components/`: React components.
+- `frontend/src/components/`: React components (including Icons.jsx for inline SVGs).
 - `WARDS.md`: Source data for Kisii County wards and sub-counties.
