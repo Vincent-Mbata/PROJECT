@@ -1,5 +1,5 @@
 import React from 'react';
-import { PlusCircle } from 'lucide-react';
+import { PlusCircleIcon } from './Icons';
 import { layout, buttons, colors } from '../styles/shared';
 
 const Header = ({ onAddClick }) => {
@@ -14,7 +14,7 @@ const Header = ({ onAddClick }) => {
         onMouseOver={(e) => { e.currentTarget.style.backgroundColor = colors.primaryHover; e.currentTarget.style.transform = 'translateY(-1px)'; }}
         onMouseOut={(e) => { e.currentTarget.style.backgroundColor = colors.primary; e.currentTarget.style.transform = 'translateY(0)'; }}
       >
-        <PlusCircle size={18} />
+        <PlusCircleIcon size={18} />
         Add Project
       </button>
     </header>

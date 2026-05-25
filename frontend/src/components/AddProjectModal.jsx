@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { X } from 'lucide-react';
+import { XIcon } from './Icons';
 import { modal, form, buttons, colors } from '../styles/shared';
 import { useToast } from './Toast';
 import { SUB_COUNTIES, getWardsForSubCounty } from '../data/wards';
@@ -249,7 +249,7 @@ const AddProjectModal = ({ isOpen, onClose, onSave, loading, subCounties, editin
             onMouseOver={(e) => { e.currentTarget.style.color = colors.textPrimary; e.currentTarget.style.backgroundColor = colors.surfaceHover; }}
             onMouseOut={(e) => { e.currentTarget.style.color = colors.textSecondary; e.currentTarget.style.backgroundColor = 'transparent'; }}
           >
-            <X size={24} />
+            <XIcon size={24} />
           </button>
         </div>
 

@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { Edit2, Trash2, Eye } from 'lucide-react';
+import { Edit2Icon, Trash2Icon, EyeIcon } from './Icons';
 import { cards, getStatusColor, colors } from '../styles/shared';
 
 const ProjectCard = ({ project, onEdit, onDelete, onView }) => {
@@ -69,9 +69,9 @@ const ProjectCard = ({ project, onEdit, onDelete, onView }) => {
           pointerEvents: hovered ? 'auto' : 'none',
         }}>
           {[
-            { Icon: Eye, color: colors.primary, action: () => onView(project), title: 'View' },
-            { Icon: Edit2, color: colors.primary, action: () => onEdit(project), title: 'Edit' },
-            { Icon: Trash2, color: colors.danger, action: () => onDelete(project.id), title: 'Delete' },
+            { Icon: EyeIcon, color: colors.primary, action: () => onView(project), title: 'View' },
+            { Icon: Edit2Icon, color: colors.primary, action: () => onEdit(project), title: 'Edit' },
+            { Icon: Trash2Icon, color: colors.danger, action: () => onDelete(project.id), title: 'Delete' },
           ].map(({ Icon, color, action, title }, i) => (
             <button
               key={i}
@@ -118,6 +118,20 @@ const ProjectCard = ({ project, onEdit, onDelete, onView }) => {
           )}
           {project.project_type && (
             <span style={cards.tagMuted()}>{project.project_type}</span>
+          )}
+          {/* Handover/Inspection indicators */}
+          {project.handover && (
+            <span style={{ ...cards.tag(colors.success), fontSize: '10px' }}>Handover</span>
+          )}
+          {project.inspections && project.inspections.length > 0 && (
+            <span style={{ ...cards.tag(colors.warning), fontSize: '10px' }}>
+              {project.inspections.length} Inspection{project.inspections.length > 1 ? 's' : ''}
+            </span>
+          )}
+          {project.equipment_acceptance && (
+            <span style={{ ...cards.tag(project.equipment_acceptance.decision === 'accepted' ? colors.success : project.equipment_acceptance.decision === 'rejected' ? colors.danger : colors.warning), fontSize: '10px' }}>
+              Equipment: {project.equipment_acceptance.decision}
+            </span>
           )}
         </div>
 

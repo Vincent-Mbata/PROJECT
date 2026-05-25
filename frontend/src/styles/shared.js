@@ -306,6 +306,35 @@ export const modal = {
     justifyContent: 'center',
     transition: 'color 0.2s ease, background-color 0.2s ease',
   },
+  input: {
+    fontFamily: 'inherit',
+    backgroundColor: colors.surface,
+    color: colors.textPrimary,
+    border: `1px solid ${colors.border}`,
+    borderRadius: '6px',
+    padding: '8px',
+    transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
+  },
+  textarea: {
+    fontFamily: 'inherit',
+    backgroundColor: colors.surface,
+    color: colors.textPrimary,
+    border: `1px solid ${colors.border}`,
+    borderRadius: '6px',
+    padding: '8px',
+    resize: 'vertical',
+    transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
+  },
+  select: {
+    fontFamily: 'inherit',
+    backgroundColor: colors.surface,
+    color: colors.textPrimary,
+    border: `1px solid ${colors.border}`,
+    borderRadius: '6px',
+    padding: '8px',
+    cursor: 'pointer',
+    transition: 'border-color 0.2s ease, box-shadow 0.2s ease',
+  },
 };
 
 export const form = {

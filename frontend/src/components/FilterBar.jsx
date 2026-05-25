@@ -1,5 +1,5 @@
 import React from 'react';
-import { Search } from 'lucide-react';
+import { SearchIcon } from './Icons';
 import { layout, form, modal, buttons, colors } from '../styles/shared';
 import { WARDS } from '../data/wards';
 
@@ -14,7 +14,7 @@ const FilterBar = ({ filters, setFilters, clearFilters, subCounties, projects })
         <label style={form.label}>Search Projects</label>
         <div style={form.searchWrapper}>
           {filters.search.length === 0 && (
-            <Search size={16} style={{ position: 'absolute', left: '8px', color: colors.textSecondary, pointerEvents: 'none' }} />
+            <SearchIcon size={16} style={{ position: 'absolute', left: '8px', color: colors.textSecondary, pointerEvents: 'none' }} />
           )}
           <input
             type="text"

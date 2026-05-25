@@ -44,7 +44,9 @@ app.use('/uploads', express.static(path.join(__dirname, 'uploads')));
 
 // --- Routes ---
 const projectRoutes = require('./routes/projectRoutes');
+const handoverInspectionRoutes = require('./routes/handoverInspectionRoutes');
 app.use('/api/projects', uploadLimiter, projectRoutes);
+app.use('/api/projects', uploadLimiter, handoverInspectionRoutes);
 
 // Basic root test route
 app.get('/', (req, res) => {
