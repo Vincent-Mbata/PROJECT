@@ -5,7 +5,7 @@ const rateLimit = require('express-rate-limit');
 require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 5000;
+const PORT = process.env.PORT || 5002;
 
 // --- CORS ---
 const corsOptions = {
@@ -18,7 +18,7 @@ app.use(cors(corsOptions));
 // --- Rate Limiting ---
 const generalLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 1000,
+    max: 10000,
     message: { error: 'Too many requests, please try again later.' },
     standardHeaders: true,
     legacyHeaders: false,
@@ -26,7 +26,7 @@ const generalLimiter = rateLimit({
 
 const uploadLimiter = rateLimit({
     windowMs: 15 * 60 * 1000,
-    max: 30,
+    max: 500,
     message: { error: 'Too many upload requests, please try again later.' },
     standardHeaders: true,
     legacyHeaders: false,

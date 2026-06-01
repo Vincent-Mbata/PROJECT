@@ -149,20 +149,46 @@ const ProjectCard = ({ project, onEdit, onDelete, onView }) => {
                 {(project.handover || (project.inspections && project.inspections.length > 0) || project.equipment_acceptance) && (
                     <div style={{ display: 'flex', gap: '4px', marginBottom: '8px', flexWrap: 'wrap' }}>
                         {project.handover && (
-                            <span style={{ ...statusBadge.success, fontSize: '9px', padding: '1px 5px', borderRadius: '3px', fontWeight: 500 }}>
+                            <span style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                padding: '2px 7px', borderRadius: '4px', fontSize: '10px',
+                                fontWeight: 600, lineHeight: '15px',
+                                backgroundColor: '#1a3a1a', color: colors.success,
+                                border: `1px solid ${colors.successBorder}`,
+                            }}>
+                                <span style={{ width: '5px', height: '5px', borderRadius: '50%', backgroundColor: colors.success }} />
                                 Handover
                             </span>
                         )}
                         {project.inspections && project.inspections.length > 0 && (
-                            <span style={{ ...statusBadge.info, fontSize: '9px', padding: '1px 5px', borderRadius: '3px', fontWeight: 500 }}>
+                            <span style={{
+                                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                padding: '2px 7px', borderRadius: '4px', fontSize: '10px',
+                                fontWeight: 600, lineHeight: '15px',
+                                backgroundColor: '#1e2330', color: colors.primary,
+                                border: `1px solid ${colors.primary}40`,
+                            }}>
+                                <span style={{ width: '5px', height: '5px', borderRadius: '50%', backgroundColor: colors.primary }} />
                                 {project.inspections.length} Insp.
                             </span>
                         )}
                         {project.equipment_acceptance && (
                             <span style={{
-                                ...statusBadge[project.equipment_acceptance.decision === 'accepted' ? 'success' : project.equipment_acceptance.decision === 'rejected' ? 'danger' : 'warning'],
-                                fontSize: '9px', padding: '1px 5px', borderRadius: '3px', fontWeight: 500,
+                                display: 'inline-flex', alignItems: 'center', gap: '4px',
+                                padding: '2px 7px', borderRadius: '4px', fontSize: '10px',
+                                fontWeight: 600, lineHeight: '15px',
+                                backgroundColor: project.equipment_acceptance.decision === 'accepted' ? '#1a3a1a'
+                                    : project.equipment_acceptance.decision === 'rejected' ? '#2d1212' : '#2d2a0e',
+                                color: project.equipment_acceptance.decision === 'accepted' ? colors.success
+                                    : project.equipment_acceptance.decision === 'rejected' ? colors.danger : colors.warning,
+                                border: `1px solid ${project.equipment_acceptance.decision === 'accepted' ? colors.successBorder
+                                    : project.equipment_acceptance.decision === 'rejected' ? colors.dangerBorder : colors.warningBorder}`,
                             }}>
+                                <span style={{
+                                    width: '5px', height: '5px', borderRadius: '50%',
+                                    backgroundColor: project.equipment_acceptance.decision === 'accepted' ? colors.success
+                                        : project.equipment_acceptance.decision === 'rejected' ? colors.danger : colors.warning,
+                                }} />
                                 Eq: {project.equipment_acceptance.decision}
                             </span>
                         )}
