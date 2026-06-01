@@ -1,16 +1,17 @@
 :root {
-  --bg-color: #0d1117;
-  --surface-color: #161b22;
-  --surface-hover: #21262d;
-  --primary-color: #58a6ff;
-  --primary-hover: #79b8ff;
-  --success-color: #3fb950;
+  --bg-color: #0b0f14;
+  --surface-color: #131920;
+  --surface-hover: #1a2230;
+  --primary-color: #4a9eff;
+  --primary-hover: #6aaeff;
+  --success-color: #2ea043;
   --warning-color: #d29922;
   --danger-color: #f85149;
-  --text-primary: #f0f6fc;
+  --text-primary: #e6edf3;
   --text-secondary: #8b949e;
-  --border-color: #30363d;
-  --radius-card: 8px;
+  --text-muted: #6e7681;
+  --border-color: #253040;
+  --radius-card: 10px;
   --radius-button: 6px;
 }
 
@@ -25,23 +26,23 @@ html {
 }
 
 body {
-  font-family: "JetBrains Mono", "Fira Code", monospace;
+  font-family: "JetBrains Mono", "Fira Code", "SF Mono", "Cascadia Code", monospace;
   background-color: var(--bg-color);
   color: var(--text-primary);
-  font-size: 14px;
+  font-size: 13px;
   line-height: 1.5;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
 }
 
-h1 { font-size: 24px; }
-h2 { font-size: 18px; }
-h3 { font-size: 16px; }
+h1 { font-size: 20px; font-weight: 700; }
+h2 { font-size: 16px; font-weight: 600; }
+h3 { font-size: 14px; font-weight: 600; }
 
 button {
   cursor: pointer;
   font-family: inherit;
-  transition: background-color 0.2s ease, color 0.2s ease, transform 0.15s ease;
+  transition: background-color 0.15s ease, color 0.15s ease, transform 0.1s ease;
 }
 
 button:active {
@@ -54,14 +55,18 @@ input, select, textarea {
   color: var(--text-primary);
   border: 1px solid var(--border-color);
   border-radius: var(--radius-button);
-  padding: 8px;
-  transition: border-color 0.2s ease, box-shadow 0.2s ease;
+  padding: 7px 10px;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
 }
 
 input:focus, select:focus, textarea:focus {
   outline: none;
   border-color: var(--primary-color);
-  box-shadow: 0 0 0 3px rgba(88, 166, 255, 0.15);
+  box-shadow: 0 0 0 2px rgba(74, 158, 255, 0.25);
+}
+
+input::placeholder, textarea::placeholder {
+  color: var(--text-muted);
 }
 
 select:hover {
@@ -70,53 +75,47 @@ select:hover {
 
 /* Toast animation */
 @keyframes slideIn {
-  from {
-    transform: translateX(100%);
-    opacity: 0;
-  }
-  to {
-    transform: translateX(0);
-    opacity: 1;
-  }
+  from { transform: translateX(100%); opacity: 0; }
+  to   { transform: translateX(0);    opacity: 1; }
 }
 
 @keyframes fadeIn {
   from { opacity: 0; }
-  to { opacity: 1; }
+  to   { opacity: 1; }
 }
 
 @keyframes scaleIn {
-  from {
-    transform: scale(0.95);
-    opacity: 0;
-  }
-  to {
-    transform: scale(1);
-    opacity: 1;
-  }
+  from { transform: scale(0.95); opacity: 0; }
+  to   { transform: scale(1);    opacity: 1; }
 }
 
 /* Scrollbar styling */
 ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
+  width: 6px;
+  height: 6px;
 }
 
 ::-webkit-scrollbar-track {
-  background: var(--bg-color);
+  background: transparent;
 }
 
 ::-webkit-scrollbar-thumb {
   background: var(--border-color);
-  border-radius: 4px;
+  border-radius: 3px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: var(--text-secondary);
+  background: var(--text-muted);
 }
 
 /* Selection styling */
 ::selection {
-  background-color: rgba(88, 166, 255, 0.3);
+  background-color: rgba(74, 158, 255, 0.25);
   color: var(--text-primary);
+}
+
+/* Focus visible for keyboard navigation */
+:focus-visible {
+  outline: 2px solid var(--primary-color);
+  outline-offset: 2px;
 }

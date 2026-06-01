@@ -1,158 +1,189 @@
 import React, { useState } from 'react';
 import { Edit2Icon, Trash2Icon, EyeIcon } from './Icons';
-import { cards, getStatusColor, colors } from '../styles/shared';
+import { cards, getStatusColor, colors, type, statusBadge } from '../styles/shared';
 
 const ProjectCard = ({ project, onEdit, onDelete, onView }) => {
-  const apiUrl = import.meta.env.VITE_API_URL || '';
-  const [hovered, setHovered] = useState(false);
+    const apiUrl = import.meta.env.VITE_API_URL || '';
+    const [isHovered, setIsHovered] = useState(false);
 
-  const mainPhoto = project.cover_photo
-    ? `${apiUrl}${project.cover_photo}`
-    : project.photos && project.photos.length > 0
-      ? `${apiUrl}${project.photos[0].url}`
-      : null;
+    const mainPhoto = project.cover_photo
+        ? `${apiUrl}${project.cover_photo}`
+        : project.photos && project.photos.length > 0
+            ? `${apiUrl}${project.photos[0].url}`
+            : null;
 
-  const handleImageError = (e) => {
-    e.target.src = `data:image/svg+xml,${encodeURIComponent(
-      `<svg xmlns="http://www.w3.org/2000/svg" width="400" height="200" fill="%23161b22"><rect width="400" height="200"/><text x="50%" y="50%" text-anchor="middle" dy=".3em" fill="%238b949e" font-family="monospace" font-size="14">No Image</text></svg>`
-    )}`;
-  };
+    const handleImageError = (e) => {
+        e.target.style.display = 'none';
+        e.target.nextSibling.style.display = 'flex';
+    };
 
-  return (
-    <div
-      style={{
-        ...cards.project,
-        transform: hovered ? cards.projectHover.transform : 'translateY(0)',
-        backgroundColor: hovered ? cards.projectHover.backgroundColor : cards.project.backgroundColor,
-        boxShadow: hovered
-          ? '0 8px 24px rgba(0,0,0,0.5), 0 0 0 1px rgba(88,166,255,0.15)'
-          : cards.project.boxShadow,
-      }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-    >
-      <div style={cards.imageContainer}>
-        {mainPhoto ? (
-          <img
-            src={mainPhoto}
-            alt={project.title}
+    const statusColor = getStatusColor(project.status);
+
+    return (
+        <div
             style={{
-              ...cards.image,
-              transform: hovered ? 'scale(1.06)' : 'scale(1)',
+                ...cards.project,
+                transform: isHovered ? cards.projectHover.transform : 'translateY(0)',
+                boxShadow: isHovered
+                    ? '0 8px 24px rgba(0,0,0,0.5), 0 0 0 1px rgba(74,158,255,0.12)'
+                    : cards.project.boxShadow,
+                borderColor: isHovered ? '#354a66' : colors.border,
             }}
-            onError={handleImageError}
-          />
-        ) : (
-          <div style={{
-            ...cards.image,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            backgroundColor: colors.surface,
-            color: colors.textSecondary,
-            fontFamily: 'monospace',
-            fontSize: '14px',
-          }}>
-            No Image
-          </div>
-        )}
-        {/* Action buttons — visible on card hover */}
-        <div style={{
-          position: 'absolute',
-          top: '8px',
-          right: '8px',
-          display: 'flex',
-          gap: '6px',
-          opacity: hovered ? 1 : 0,
-          transform: hovered ? 'translateY(0)' : 'translateY(-8px)',
-          transition: 'opacity 0.2s ease, transform 0.2s ease',
-          pointerEvents: hovered ? 'auto' : 'none',
-        }}>
-          {[
-            { Icon: EyeIcon, color: colors.primary, action: () => onView(project), title: 'View' },
-            { Icon: Edit2Icon, color: colors.primary, action: () => onEdit(project), title: 'Edit' },
-            { Icon: Trash2Icon, color: colors.danger, action: () => onDelete(project.id), title: 'Delete' },
-          ].map(({ Icon, color, action, title }, i) => (
-            <button
-              key={i}
-              onClick={action}
-              title={title}
-              style={{
-                backgroundColor: 'rgba(0,0,0,0.65)',
-                color: 'white',
-                border: 'none',
-                borderRadius: '4px',
-                padding: '5px',
-                cursor: 'pointer',
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                transition: 'background-color 0.2s ease, transform 0.15s ease',
-                boxShadow: '0 1px 4px rgba(0,0,0,0.3)',
-              }}
-              onMouseOver={(e) => { e.currentTarget.style.backgroundColor = color; e.currentTarget.style.transform = 'scale(1.1)'; }}
-              onMouseOut={(e) => { e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.65)'; e.currentTarget.style.transform = 'scale(1)'; }}
-            >
-              <Icon size={14} />
-            </button>
-          ))}
-        </div>
-      </div>
+            onMouseEnter={() => setIsHovered(true)}
+            onMouseLeave={() => setIsHovered(false)}
+            role="article"
+            aria-label={`Project: ${project.title}`}
+        >
+            <div style={cards.imageContainer}>
+                {mainPhoto ? (
+                    <>
+                        <img
+                            src={mainPhoto}
+                            alt={`Cover photo for ${project.title}`}
+                            style={{ ...cards.image, transform: isHovered ? 'scale(1.04)' : 'scale(1)' }}
+                            onError={handleImageError}
+                            loading="lazy"
+                        />
+                        <div style={{
+                            ...cards.image, display: 'none', alignItems: 'center', justifyContent: 'center',
+                            backgroundColor: colors.surfaceActive, color: colors.textMuted, fontSize: '12px',
+                        }}>
+                            No Image
+                        </div>
+                    </>
+                ) : (
+                    <div style={{
+                        ...cards.image, display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        backgroundColor: colors.surfaceActive, color: colors.textMuted, fontSize: '12px',
+                    }}>
+                        No Image
+                    </div>
+                )}
+                {/* Status badge — always visible, solid opaque background */}
+                {project.status && (
+                    <div style={{
+                        position: 'absolute', top: '8px', left: '8px',
+                        display: 'inline-flex', alignItems: 'center', gap: '6px',
+                        padding: '4px 10px', borderRadius: '5px',
+                        backgroundColor: statusColor === colors.success ? '#1a3a1a'
+                            : statusColor === colors.warning ? '#2d2a0e'
+                            : statusColor === colors.danger ? '#2d1212'
+                            : '#1e2330',
+                        border: `1px solid ${statusColor === colors.success ? '#2ea043'
+                            : statusColor === colors.warning ? '#d29922'
+                            : statusColor === colors.danger ? '#f85149'
+                            : '#3a4456'}`,
+                        boxShadow: '0 2px 6px rgba(0,0,0,0.4)',
+                    }}>
+                        <span style={{
+                            width: '8px', height: '8px', borderRadius: '50%',
+                            backgroundColor: statusColor,
+                            flexShrink: 0,
+                            boxShadow: `0 0 6px ${statusColor}`,
+                        }} />
+                        <span style={{
+                            color: statusColor,
+                            fontSize: '10px', fontWeight: 700,
+                            lineHeight: '14px',
+                            letterSpacing: '0.3px',
+                        }}>
+                            {project.status.toUpperCase()}
+                        </span>
+                    </div>
+                )}
+                {/* Action buttons */}
+                <div style={{
+                    position: 'absolute', bottom: '8px', right: '8px',
+                    display: 'flex', gap: '5px',
+                    opacity: isHovered ? 1 : 0,
+                    transform: isHovered ? 'translateY(0)' : 'translateY(6px)',
+                    transition: 'opacity 0.2s ease, transform 0.2s ease',
+                }}>
+                    {[
+                        { Icon: EyeIcon, label: 'View project', action: () => onView(project) },
+                        { Icon: Edit2Icon, label: 'Edit project', action: () => onEdit(project) },
+                        { Icon: Trash2Icon, label: 'Delete project', action: () => onDelete(project.id), danger: true },
+                    ].map(({ Icon, label, action, danger }, i) => (
+                        <button
+                            key={i}
+                            onClick={action}
+                            title={label}
+                            aria-label={label}
+                            style={{
+                                backgroundColor: 'rgba(0,0,0,0.7)',
+                                color: danger ? colors.danger : 'white',
+                                border: 'none', borderRadius: '4px',
+                                padding: '5px', cursor: 'pointer',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                                transition: 'background-color 0.15s ease, transform 0.1s ease',
+                            }}
+                            onMouseOver={(e) => {
+                                e.currentTarget.style.backgroundColor = danger ? colors.danger : colors.primary;
+                                e.currentTarget.style.transform = 'scale(1.1)';
+                            }}
+                            onMouseOut={(e) => {
+                                e.currentTarget.style.backgroundColor = 'rgba(0,0,0,0.7)';
+                                e.currentTarget.style.transform = 'scale(1)';
+                            }}
+                        >
+                            <Icon size={13} />
+                        </button>
+                    ))}
+                </div>
+            </div>
 
-      <div style={cards.content}>
-        <h3 style={cards.title}>{project.title}</h3>
-        <p style={cards.description}>{project.description}</p>
+            <div style={cards.content}>
+                <h3 style={cards.title}>{project.title}</h3>
+                {project.description && (
+                    <p style={cards.description}>{project.description}</p>
+                )}
 
-        <div style={cards.tagContainer}>
-          {project.status && (
-            <span style={cards.tag(getStatusColor(project.status))}>{project.status}</span>
-          )}
-          {project.sub_county && (
-            <span style={cards.tagMuted()}>{project.sub_county}</span>
-          )}
-          {project.ward_area && (
-            <span style={cards.tagMuted()}>{project.ward_area}</span>
-          )}
-          {project.category && (
-            <span style={cards.tag(colors.primary)}>{project.category}</span>
-          )}
-          {project.project_type && (
-            <span style={cards.tagMuted()}>{project.project_type}</span>
-          )}
-          {/* Handover/Inspection indicators */}
-          {project.handover && (
-            <span style={{ ...cards.tag(colors.success), fontSize: '10px' }}>Handover</span>
-          )}
-          {project.inspections && project.inspections.length > 0 && (
-            <span style={{ ...cards.tag(colors.warning), fontSize: '10px' }}>
-              {project.inspections.length} Inspection{project.inspections.length > 1 ? 's' : ''}
-            </span>
-          )}
-          {project.equipment_acceptance && (
-            <span style={{ ...cards.tag(project.equipment_acceptance.decision === 'accepted' ? colors.success : project.equipment_acceptance.decision === 'rejected' ? colors.danger : colors.warning), fontSize: '10px' }}>
-              Equipment: {project.equipment_acceptance.decision}
-            </span>
-          )}
-        </div>
+                <div style={cards.tagContainer}>
+                    {project.sub_county && <span style={cards.tagMuted}>{project.sub_county}</span>}
+                    {project.ward_area && <span style={cards.tagMuted}>{project.ward_area}</span>}
+                    {project.category && <span style={cards.tag(colors.primary)}>{project.category}</span>}
+                    {project.project_type && <span style={cards.tagMuted}>{project.project_type}</span>}
+                </div>
 
-        <div style={cards.budgetRow}>
-          <div>Budget: Kshs {Number(project.budget || 0).toLocaleString()}</div>
-          <div style={{ color: colors.textSecondary, fontWeight: 'normal' }}>
-            Project Cost: Kshs {Number(project.project_cost || 0).toLocaleString()}
-          </div>
-        </div>
+                {/* Event indicators */}
+                {(project.handover || (project.inspections && project.inspections.length > 0) || project.equipment_acceptance) && (
+                    <div style={{ display: 'flex', gap: '4px', marginBottom: '8px', flexWrap: 'wrap' }}>
+                        {project.handover && (
+                            <span style={{ ...statusBadge.success, fontSize: '9px', padding: '1px 5px', borderRadius: '3px', fontWeight: 500 }}>
+                                Handover
+                            </span>
+                        )}
+                        {project.inspections && project.inspections.length > 0 && (
+                            <span style={{ ...statusBadge.info, fontSize: '9px', padding: '1px 5px', borderRadius: '3px', fontWeight: 500 }}>
+                                {project.inspections.length} Insp.
+                            </span>
+                        )}
+                        {project.equipment_acceptance && (
+                            <span style={{
+                                ...statusBadge[project.equipment_acceptance.decision === 'accepted' ? 'success' : project.equipment_acceptance.decision === 'rejected' ? 'danger' : 'warning'],
+                                fontSize: '9px', padding: '1px 5px', borderRadius: '3px', fontWeight: 500,
+                            }}>
+                                Eq: {project.equipment_acceptance.decision}
+                            </span>
+                        )}
+                    </div>
+                )}
 
-        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-          <div style={cards.progressBar}>
-            <div style={cards.progressFill(project.completion_percentage || 0)} />
-          </div>
-          <span style={{ fontSize: '12px', color: colors.textSecondary }}>
-            {project.completion_percentage || 0}%
-          </span>
+                <div style={cards.budgetRow}>
+                    Budget: <strong>Kshs {Number(project.budget || 0).toLocaleString()}</strong>
+                </div>
+
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                    <div style={cards.progressBar}>
+                        <div style={cards.progressFill(project.completion_percentage || 0)} />
+                    </div>
+                    <span style={{ fontSize: '11px', color: colors.textMuted, fontWeight: 500, minWidth: '32px', textAlign: 'right' }}>
+                        {project.completion_percentage || 0}%
+                    </span>
+                </div>
+            </div>
         </div>
-      </div>
-    </div>
-  );
+    );
 };
 
 export default ProjectCard;

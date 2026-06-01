@@ -5,277 +5,208 @@ const upload = require('../middleware/upload');
 const fs = require('fs').promises;
 const path = require('path');
 
-// Allowed values for validation
 const ALLOWED_STATUSES = ['Ongoing', 'Completed', 'On Hold', 'Planning'];
 const ALLOWED_CATEGORIES = ['Works', 'Equipment', 'Both Works and Equipment'];
 
-/**
- * GET /api/projects
- * Retrieves all projects with their associated photos aggregated into an array.
- */
-router.get('/', async (req, res) => {
+// ============================================================
+// SHARED: Build the full project query with photos + events
+// ============================================================
+const PROJECT_FULL_QUERY = `
+    SELECT p.*,
+           COALESCE(json_agg(json_build_object('id', ph.id, 'url', ph.photo_url) ORDER BY ph.id) FILTER (WHERE ph.id IS NOT NULL), '[]') as photos,
+           (SELECT ph2.photo_url FROM project_photos ph2 WHERE ph2.project_id = p.id AND ph2.is_cover = TRUE LIMIT 1) as cover_photo,
+           (SELECT json_build_object(
+               'id', h.id,
+               'handover_date', h.handover_date,
+               'has_photos', EXISTS(SELECT 1 FROM event_photos ep WHERE ep.event_type = 'handover' AND ep.event_id = h.id)
+            ) FROM project_handovers h WHERE h.project_id = p.id LIMIT 1) as handover,
+           (SELECT json_agg(json_build_object(
+               'id', i.id,
+               'inspection_number', i.inspection_number,
+               'inspection_date', i.inspection_date,
+               'has_photos', EXISTS(SELECT 1 FROM event_photos ep WHERE ep.event_type = 'inspection' AND ep.event_id = i.id)
+            ) ORDER BY i.inspection_number) FROM project_inspections i WHERE i.project_id = p.id) as inspections,
+           (SELECT json_build_object(
+               'id', ea.id,
+               'acceptance_date', ea.acceptance_date,
+               'decision', ea.decision,
+               'has_photos', EXISTS(SELECT 1 FROM event_photos ep WHERE ep.event_type = 'equipment_acceptance' AND ep.event_id = ea.id)
+            ) FROM project_equipment_acceptances ea WHERE ea.project_id = p.id LIMIT 1) as equipment_acceptance
+    FROM projects p
+    LEFT JOIN project_photos ph ON p.id = ph.project_id
+    WHERE p.id = $1
+    GROUP BY p.id;
+`;
+
+// ============================================================
+// SHARED: Sanitize and validate project input
+// ============================================================
+function sanitizeProjectInput(body) {
+    const {
+        title, description, contractor_name, budget, project_cost,
+        cost_to_date, completion_percentage, status, sub_county,
+        ward_area, project_type, category
+    } = body;
+
+    const b = parseFloat(budget) || 0;
+    const pc = parseFloat(project_cost) || 0;
+    const ctd = parseFloat(cost_to_date) || 0;
+    const cp = parseInt(completion_percentage) || 0;
+
+    const errors = [];
+    if (b < 0 || pc < 0 || ctd < 0) {
+        errors.push('Financial values cannot be negative');
+    }
+    if (pc > b) {
+        errors.push('Project Cost cannot be greater than Budget');
+    }
+    if (ctd > pc) {
+        errors.push('Cost to Date cannot be greater than Project Cost');
+    }
+    if (cp < 0 || cp > 100) {
+        errors.push('Completion percentage must be between 0 and 100');
+    }
+
+    return {
+        errors,
+        sanitized: {
+            title: title ? title.trim().substring(0, 255) : null,
+            description: description ? description.trim().substring(0, 5000) : null,
+            contractor_name: contractor_name ? contractor_name.trim().substring(0, 255) : null,
+            budget: b,
+            project_cost: pc,
+            cost_to_date: ctd,
+            completion_percentage: cp,
+            status: status && ALLOWED_STATUSES.includes(status) ? status : null,
+            sub_county: sub_county ? sub_county.trim().substring(0, 100) : null,
+            ward_area: ward_area ? ward_area.trim().substring(0, 100) : null,
+            project_type: project_type ? project_type.trim().substring(0, 100) : null,
+            category: category && ALLOWED_CATEGORIES.includes(category) ? category : null,
+        }
+    };
+}
+
+// ============================================================
+// ============================================================
+// GET /api/projects
+// ============================================================
+router.get('/', async (req, res, next) => {
     try {
-        const query = `
+        const result = await pool.query(`
             SELECT p.*,
                    COALESCE(json_agg(json_build_object('id', ph.id, 'url', ph.photo_url) ORDER BY ph.id) FILTER (WHERE ph.id IS NOT NULL), '[]') as photos,
                    (SELECT ph2.photo_url FROM project_photos ph2 WHERE ph2.project_id = p.id AND ph2.is_cover = TRUE LIMIT 1) as cover_photo,
                    (SELECT json_build_object(
-                       'id', h.id,
-                       'handover_date', h.handover_date,
+                       'id', h.id, 'handover_date', h.handover_date,
                        'has_photos', EXISTS(SELECT 1 FROM event_photos ep WHERE ep.event_type = 'handover' AND ep.event_id = h.id)
                     ) FROM project_handovers h WHERE h.project_id = p.id LIMIT 1) as handover,
                    (SELECT json_agg(json_build_object(
-                       'id', i.id,
-                       'inspection_number', i.inspection_number,
+                       'id', i.id, 'inspection_number', i.inspection_number,
                        'inspection_date', i.inspection_date,
                        'has_photos', EXISTS(SELECT 1 FROM event_photos ep WHERE ep.event_type = 'inspection' AND ep.event_id = i.id)
                     ) ORDER BY i.inspection_number) FROM project_inspections i WHERE i.project_id = p.id) as inspections,
                    (SELECT json_build_object(
-                       'id', ea.id,
-                       'acceptance_date', ea.acceptance_date,
-                       'decision', ea.decision,
+                       'id', ea.id, 'acceptance_date', ea.acceptance_date, 'decision', ea.decision,
                        'has_photos', EXISTS(SELECT 1 FROM event_photos ep WHERE ep.event_type = 'equipment_acceptance' AND ep.event_id = ea.id)
                     ) FROM project_equipment_acceptances ea WHERE ea.project_id = p.id LIMIT 1) as equipment_acceptance
             FROM projects p
             LEFT JOIN project_photos ph ON p.id = ph.project_id
             GROUP BY p.id
             ORDER BY p.created_at DESC;
-        `;
-        const result = await pool.query(query);
+        `);
         res.status(200).json(result.rows);
     } catch (err) {
-        console.error('Error fetching projects:', err);
-        res.status(500).json({ error: 'Internal server error while fetching projects' });
+        next(err);
     }
 });
 
-/**
- * POST /api/projects
- * Creates a new project and uploads associated photos.
- * Expects multipart/form-data.
- */
-router.post('/', upload.array('photos', 10), async (req, res) => {
-    const {
-        title,
-        description,
-        contractor_name,
-        budget,
-        project_cost,
-        cost_to_date,
-        completion_percentage,
-        status,
-        sub_county,
-        ward_area,
-        project_type,
-        category
-    } = req.body;
+// ============================================================
+// POST /api/projects
+// ============================================================
+router.post('/', upload.array('photos', 50), async (req, res, next) => {
+    const { errors, sanitized } = sanitizeProjectInput(req.body);
 
-    // Basic validation
-    if (!title || !title.trim()) {
+    if (!sanitized.title) {
         return res.status(400).json({ error: 'Project title is required' });
     }
-
-    // Financial Constraints Validation
-    const b = parseFloat(budget) || 0;
-    const pc = parseFloat(project_cost) || 0;
-    const ctd = parseFloat(cost_to_date) || 0;
-    const cp = parseInt(completion_percentage) || 0;
-
-    if (b < 0 || pc < 0 || ctd < 0) {
-        return res.status(400).json({ error: 'Budget, Project Cost, and Cost to Date cannot be negative' });
+    if (errors.length > 0) {
+        return res.status(400).json({ error: errors[0] });
     }
-    if (pc > b) {
-        return res.status(400).json({ error: 'Project Cost cannot be greater than Budget' });
-    }
-    if (ctd > pc) {
-        return res.status(400).json({ error: 'Cost to Date cannot be greater than Project Cost' });
-    }
-    if (cp < 0 || cp > 100) {
-        return res.status(400).json({ error: 'Completion percentage must be between 0 and 100' });
-    }
-
-    // Validate status
-    const validatedStatus = status && ALLOWED_STATUSES.includes(status) ? status : 'Ongoing';
-
-    // Validate category
-    const validatedCategory = category && ALLOWED_CATEGORIES.includes(category) ? category : 'Works';
-
-    // Sanitize text fields (trim and limit length)
-    const sanitizedTitle = title.trim().substring(0, 255);
-    const sanitizedDescription = description ? description.trim().substring(0, 5000) : null;
-    const sanitizedContractor = contractor_name ? contractor_name.trim().substring(0, 255) : null;
-    const sanitizedSubCounty = sub_county ? sub_county.trim().substring(0, 100) : null;
-    const sanitizedWardArea = ward_area ? ward_area.trim().substring(0, 100) : null;
-    const sanitizedProjectType = project_type ? project_type.trim().substring(0, 100) : null;
 
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
 
-        // 1. Insert Project
-        const projectInsertQuery = `
+        const projectRes = await client.query(`
             INSERT INTO projects (title, description, contractor_name, budget, project_cost, cost_to_date, completion_percentage, status, sub_county, ward_area, project_type, category)
             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
-            RETURNING *;
-        `;
-        const projectValues = [
-            sanitizedTitle,
-            sanitizedDescription,
-            sanitizedContractor,
-            b,
-            pc,
-            ctd,
-            cp,
-            validatedStatus,
-            sanitizedSubCounty,
-            sanitizedWardArea,
-            sanitizedProjectType,
-            validatedCategory
-        ];
-        const projectRes = await client.query(projectInsertQuery, projectValues);
-        const project = projectRes.rows[0];
+            RETURNING id;
+        `, [
+            sanitized.title, sanitized.description, sanitized.contractor_name,
+            sanitized.budget, sanitized.project_cost, sanitized.cost_to_date,
+            sanitized.completion_percentage,
+            sanitized.status || 'Ongoing',
+            sanitized.sub_county, sanitized.ward_area,
+            sanitized.project_type, sanitized.category || 'Works'
+        ]);
 
-        // 2. Insert Photos (first photo becomes cover by default)
+        const projectId = projectRes.rows[0].id;
+
         if (req.files && req.files.length > 0) {
-            const photoInsertQuery = `
-                INSERT INTO project_photos (project_id, photo_url, is_cover)
-                VALUES ($1, $2, $3);
-            `;
-
-            req.files.forEach((file, idx) => {
-                const photoUrl = `/uploads/${file.filename}`;
-                const isCover = idx === 0 ? true : false;
-                client.query(photoInsertQuery, [project.id, photoUrl, isCover]);
-            });
-
-            // Wait for all inserts to complete
-            await client.query('SELECT 1'); // sync point
+            for (let i = 0; i < req.files.length; i++) {
+                const photoUrl = `/uploads/${req.files[i].filename}`;
+                await client.query(
+                    'INSERT INTO project_photos (project_id, photo_url, is_cover) VALUES ($1, $2, $3)',
+                    [projectId, photoUrl, i === 0]
+                );
+            }
         }
 
         await client.query('COMMIT');
 
-        // Fetch the project with photos to return the complete object
-        const finalQuery = `
-            SELECT p.*,
-                   COALESCE(json_agg(json_build_object('id', ph.id, 'url', ph.photo_url) ORDER BY ph.id) FILTER (WHERE ph.id IS NOT NULL), '[]') as photos,
-                   (SELECT ph2.photo_url FROM project_photos ph2 WHERE ph2.project_id = p.id AND ph2.is_cover = TRUE LIMIT 1) as cover_photo,
-                   (SELECT json_build_object(
-                       'id', h.id,
-                       'handover_date', h.handover_date,
-                       'has_photos', EXISTS(SELECT 1 FROM event_photos ep WHERE ep.event_type = 'handover' AND ep.event_id = h.id)
-                    ) FROM project_handovers h WHERE h.project_id = p.id LIMIT 1) as handover,
-                   (SELECT json_agg(json_build_object(
-                       'id', i.id,
-                       'inspection_number', i.inspection_number,
-                       'inspection_date', i.inspection_date,
-                       'has_photos', EXISTS(SELECT 1 FROM event_photos ep WHERE ep.event_type = 'inspection' AND ep.event_id = i.id)
-                    ) ORDER BY i.inspection_number) FROM project_inspections i WHERE i.project_id = p.id) as inspections,
-                   (SELECT json_build_object(
-                       'id', ea.id,
-                       'acceptance_date', ea.acceptance_date,
-                       'decision', ea.decision,
-                       'has_photos', EXISTS(SELECT 1 FROM event_photos ep WHERE ep.event_type = 'equipment_acceptance' AND ep.event_id = ea.id)
-                    ) FROM project_equipment_acceptances ea WHERE ea.project_id = p.id LIMIT 1) as equipment_acceptance
-            FROM projects p
-            LEFT JOIN project_photos ph ON p.id = ph.project_id
-            WHERE p.id = $1
-            GROUP BY p.id;
-        `;
-        const finalRes = await pool.query(finalQuery, [project.id]);
-
+        const finalRes = await pool.query(PROJECT_FULL_QUERY, [projectId]);
         res.status(201).json(finalRes.rows[0]);
-
     } catch (err) {
         await client.query('ROLLBACK');
-        console.error('Error creating project:', err.message);
-        console.error('Error detail:', err.detail || 'none');
-        console.error('Error hint:', err.hint || 'none');
-        console.error('Error where:', err.where || 'none');
-        res.status(500).json({ error: 'Internal server error while creating project', details: err.message });
+        next(err);
     } finally {
         client.release();
     }
 });
 
-/**
- * PUT /api/projects/:id
- * Updates project details and optionally adds new photos.
- */
-router.put('/:id', upload.array('photos', 10), async (req, res) => {
+// ============================================================
+// PUT /api/projects/:id
+// ============================================================
+router.put('/:id', upload.array('photos', 50), async (req, res, next) => {
     const { id } = req.params;
-    const {
-        title,
-        description,
-        contractor_name,
-        budget,
-        project_cost,
-        cost_to_date,
-        completion_percentage,
-        status,
-        sub_county,
-        ward_area,
-        project_type,
-        category
-    } = req.body;
+    const { errors, sanitized } = sanitizeProjectInput(req.body);
 
-    const b = parseFloat(budget) || 0;
-    const pc = parseFloat(project_cost) || 0;
-    const ctd = parseFloat(cost_to_date) || 0;
-    const cp = parseInt(completion_percentage) || 0;
-
-    if (b < 0 || pc < 0 || ctd < 0) {
-        return res.status(400).json({ error: 'Financial values cannot be negative' });
+    if (errors.length > 0) {
+        return res.status(400).json({ error: errors[0] });
     }
-    if (pc > b) {
-        return res.status(400).json({ error: 'Project Cost cannot be greater than Budget' });
-    }
-    if (ctd > pc) {
-        return res.status(400).json({ error: 'Cost to Date cannot be greater than Project Cost' });
-    }
-    if (cp < 0 || cp > 100) {
-        return res.status(400).json({ error: 'Completion percentage must be between 0 and 100' });
-    }
-
-    // Validate status
-    const validatedStatus = status && ALLOWED_STATUSES.includes(status) ? status : null;
-
-    // Validate category
-    const validatedCategory = category && ALLOWED_CATEGORIES.includes(category) ? category : null;
-
-    // Sanitize text fields
-    const sanitizedTitle = title ? title.trim().substring(0, 255) : null;
-    const sanitizedDescription = description ? description.trim().substring(0, 5000) : null;
-    const sanitizedContractor = contractor_name ? contractor_name.trim().substring(0, 255) : null;
-    const sanitizedSubCounty = sub_county ? sub_county.trim().substring(0, 100) : null;
-    const sanitizedWardArea = ward_area ? ward_area.trim().substring(0, 100) : null;
-    const sanitizedProjectType = project_type ? project_type.trim().substring(0, 100) : null;
 
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
 
-        const updateQuery = `
+        const updateRes = await client.query(`
             UPDATE projects
-            SET title = COALESCE($1, title),
-                description = COALESCE($2, description),
-                contractor_name = COALESCE($3, contractor_name),
-                budget = $4,
-                project_cost = $5,
-                cost_to_date = $6,
+            SET title = COALESCE($1, title), description = COALESCE($2, description),
+                contractor_name = COALESCE($3, contractor_name), budget = $4,
+                project_cost = $5, cost_to_date = $6,
                 completion_percentage = COALESCE($7, completion_percentage),
-                status = COALESCE($8, status),
-                sub_county = COALESCE($9, sub_county),
-                ward_area = COALESCE($10, ward_area),
-                project_type = COALESCE($11, project_type),
+                status = COALESCE($8, status), sub_county = COALESCE($9, sub_county),
+                ward_area = COALESCE($10, ward_area), project_type = COALESCE($11, project_type),
                 category = COALESCE($12, category)
             WHERE id = $13
             RETURNING *;
-        `;
-        const updateValues = [
-            sanitizedTitle, sanitizedDescription, sanitizedContractor, b, pc, ctd,
-            cp, validatedStatus, sanitizedSubCounty, sanitizedWardArea, sanitizedProjectType, validatedCategory, id
-        ];
-        const updateRes = await client.query(updateQuery, updateValues);
+        `, [
+            sanitized.title, sanitized.description, sanitized.contractor_name,
+            sanitized.budget, sanitized.project_cost, sanitized.cost_to_date,
+            sanitized.completion_percentage, sanitized.status,
+            sanitized.sub_county, sanitized.ward_area,
+            sanitized.project_type, sanitized.category, id
+        ]);
 
         if (updateRes.rowCount === 0) {
             await client.query('ROLLBACK');
@@ -283,85 +214,47 @@ router.put('/:id', upload.array('photos', 10), async (req, res) => {
         }
 
         if (req.files && req.files.length > 0) {
-            const photoInsertQuery = `INSERT INTO project_photos (project_id, photo_url) VALUES ($1, $2);`;
             for (const file of req.files) {
                 const photoUrl = `/uploads/${file.filename}`;
-                await client.query(photoInsertQuery, [id, photoUrl]);
+                await client.query(
+                    'INSERT INTO project_photos (project_id, photo_url) VALUES ($1, $2)',
+                    [id, photoUrl]
+                );
             }
         }
 
         await client.query('COMMIT');
 
-        // Return the updated project with photos (consistent with POST)
-        const finalQuery = `
-            SELECT p.*,
-                   COALESCE(json_agg(json_build_object('id', ph.id, 'url', ph.photo_url) ORDER BY ph.id) FILTER (WHERE ph.id IS NOT NULL), '[]') as photos,
-                   (SELECT ph2.photo_url FROM project_photos ph2 WHERE ph2.project_id = p.id AND ph2.is_cover = TRUE LIMIT 1) as cover_photo,
-                   (SELECT json_build_object(
-                       'id', h.id,
-                       'handover_date', h.handover_date,
-                       'has_photos', EXISTS(SELECT 1 FROM event_photos ep WHERE ep.event_type = 'handover' AND ep.event_id = h.id)
-                    ) FROM project_handovers h WHERE h.project_id = p.id LIMIT 1) as handover,
-                   (SELECT json_agg(json_build_object(
-                       'id', i.id,
-                       'inspection_number', i.inspection_number,
-                       'inspection_date', i.inspection_date,
-                       'has_photos', EXISTS(SELECT 1 FROM event_photos ep WHERE ep.event_type = 'inspection' AND ep.event_id = i.id)
-                    ) ORDER BY i.inspection_number) FROM project_inspections i WHERE i.project_id = p.id) as inspections,
-                   (SELECT json_build_object(
-                       'id', ea.id,
-                       'acceptance_date', ea.acceptance_date,
-                       'decision', ea.decision,
-                       'has_photos', EXISTS(SELECT 1 FROM event_photos ep WHERE ep.event_type = 'equipment_acceptance' AND ep.event_id = ea.id)
-                    ) FROM project_equipment_acceptances ea WHERE ea.project_id = p.id LIMIT 1) as equipment_acceptance
-            FROM projects p
-            LEFT JOIN project_photos ph ON p.id = ph.project_id
-            WHERE p.id = $1
-            GROUP BY p.id;
-        `;
-        const finalRes = await pool.query(finalQuery, [id]);
+        const finalRes = await pool.query(PROJECT_FULL_QUERY, [id]);
         res.status(200).json(finalRes.rows[0]);
-
     } catch (err) {
         await client.query('ROLLBACK');
-        console.error('Error updating project:', err);
-        res.status(500).json({ error: 'Internal server error' });
+        next(err);
     } finally {
         client.release();
     }
 });
 
-/**
- * DELETE /api/projects/:id
- * Deletes a project and its associated photo files.
- */
-router.delete('/:id', async (req, res) => {
+// ============================================================
+// DELETE /api/projects/:id
+// ============================================================
+router.delete('/:id', async (req, res, next) => {
     const { id } = req.params;
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
 
-        // 1. Find all photos to delete from filesystem
-        const photoRes = await client.query('SELECT photo_url FROM project_photos WHERE project_id = $1', [id]);
-        const photos = photoRes.rows;
+        const photoRes = await client.query(
+            'SELECT photo_url FROM project_photos WHERE project_id = $1', [id]
+        );
 
-        // 2. Delete files from storage BEFORE committing DB transaction
         const uploadsDir = path.join(__dirname, '..', 'uploads');
-        const deletedFiles = [];
-        for (const photo of photos) {
+        for (const photo of photoRes.rows) {
             const filePath = path.join(uploadsDir, photo.photo_url.replace('/uploads/', ''));
-            try {
-                await fs.unlink(filePath);
-                deletedFiles.push(filePath);
-            } catch (err) {
-                // File may already be missing; log but don't fail the deletion
-                console.warn(`Could not delete file ${filePath}:`, err.message);
-            }
+            try { await fs.unlink(filePath); } catch (e) { /* file may already be missing */ }
         }
 
-        // 3. Delete project (Cascades to project_photos table)
         const deleteRes = await client.query('DELETE FROM projects WHERE id = $1', [id]);
-
         if (deleteRes.rowCount === 0) {
             await client.query('ROLLBACK');
             return res.status(404).json({ error: 'Project not found' });
@@ -371,19 +264,16 @@ router.delete('/:id', async (req, res) => {
         res.status(200).json({ message: 'Project deleted successfully' });
     } catch (err) {
         await client.query('ROLLBACK');
-        console.error('Error deleting project:', err);
-        res.status(500).json({ error: 'Internal server error' });
+        next(err);
     } finally {
         client.release();
     }
 });
 
-/**
- * PUT /api/projects/:id/cover-photo
- * Sets a specific photo as the cover photo for a project.
- * Expects { photo_url: string } in the body.
- */
-router.put('/:id/cover-photo', async (req, res) => {
+// ============================================================
+// PUT /api/projects/:id/cover-photo
+// ============================================================
+router.put('/:id/cover-photo', async (req, res, next) => {
     const { id } = req.params;
     const { photo_url } = req.body;
 
@@ -394,67 +284,49 @@ router.put('/:id/cover-photo', async (req, res) => {
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
-
-        // Unset all cover photos for this project
         await client.query('UPDATE project_photos SET is_cover = FALSE WHERE project_id = $1', [id]);
-
-        // Set the selected photo as cover
         const updateRes = await client.query(
             'UPDATE project_photos SET is_cover = TRUE WHERE project_id = $1 AND photo_url = $2',
             [id, photo_url]
         );
-
         if (updateRes.rowCount === 0) {
             await client.query('ROLLBACK');
             return res.status(404).json({ error: 'Photo not found for this project' });
         }
-
         await client.query('COMMIT');
         res.status(200).json({ message: 'Cover photo updated successfully' });
     } catch (err) {
         await client.query('ROLLBACK');
-        console.error('Error setting cover photo:', err);
-        res.status(500).json({ error: 'Internal server error' });
+        next(err);
     } finally {
         client.release();
     }
 });
 
-/**
- * DELETE /api/projects/:id/photos/:photoId
- * Deletes a single photo from a project (DB record + filesystem).
- * If the deleted photo was the cover, clears cover_photo.
- */
-router.delete('/:id/photos/:photoId', async (req, res) => {
+// ============================================================
+// DELETE /api/projects/:id/photos/:photoId
+// ============================================================
+router.delete('/:id/photos/:photoId', async (req, res, next) => {
     const { id, photoId } = req.params;
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
 
-        // Get the photo_url before deleting
         const photoRes = await client.query(
             'SELECT photo_url, is_cover FROM project_photos WHERE id = $1 AND project_id = $2',
             [photoId, id]
         );
-
         if (photoRes.rowCount === 0) {
             await client.query('ROLLBACK');
             return res.status(404).json({ error: 'Photo not found' });
         }
 
         const { photo_url, is_cover } = photoRes.rows[0];
-
-        // Delete from database
         await client.query('DELETE FROM project_photos WHERE id = $1 AND project_id = $2', [photoId, id]);
 
-        // Delete file from filesystem
         const uploadsDir = path.join(__dirname, '..', 'uploads');
         const filePath = path.join(uploadsDir, photo_url.replace('/uploads/', ''));
-        try {
-            await fs.unlink(filePath);
-        } catch (fileErr) {
-            console.warn(`Could not delete file ${filePath}:`, fileErr.message);
-        }
+        try { await fs.unlink(filePath); } catch (e) { /* file may already be missing */ }
 
         await client.query('COMMIT');
         res.status(200).json({
@@ -464,8 +336,7 @@ router.delete('/:id/photos/:photoId', async (req, res) => {
         });
     } catch (err) {
         await client.query('ROLLBACK');
-        console.error('Error deleting photo:', err);
-        res.status(500).json({ error: 'Internal server error' });
+        next(err);
     } finally {
         client.release();
     }

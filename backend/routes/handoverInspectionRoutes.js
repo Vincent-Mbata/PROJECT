@@ -1,14 +1,14 @@
 const express = require('express');
 const router = express.Router();
-const { pool } = require('../db');
+const { pool } = require('./../db');
 const upload = require('../middleware/upload');
 const fs = require('fs').promises;
 const path = require('path');
 
 // ============================================================
-// HELPER: Get all event photos for a project
+// SHARED: Get event photos for a project
 // ============================================================
-async function getEventPhotos(client, projectId) {
+async function findEventPhotos(client, projectId) {
     const photosRes = await client.query(`
         SELECT ep.id, ep.event_type, ep.event_id, ep.photo_url
         FROM event_photos ep
@@ -25,9 +25,9 @@ async function getEventPhotos(client, projectId) {
 }
 
 // ============================================================
-// HELPER: Attach photos to events
+// SHARED: Attach photos to events
 // ============================================================
-function attachPhotosToEvents(events, photos, eventType) {
+function mapPhotosToEvents(events, photos, eventType) {
     return events.map(event => ({
         ...event,
         photos: photos
@@ -37,33 +37,58 @@ function attachPhotosToEvents(events, photos, eventType) {
 }
 
 // ============================================================
-// GET /api/projects/:id/handover
-// Returns the site handover for a project (if exists)
+// SHARED: Validate project exists and return category
 // ============================================================
-router.get('/:id/handover', async (req, res) => {
+async function getProjectCategory(client, projectId) {
+    const result = await client.query('SELECT category FROM projects WHERE id = $1', [projectId]);
+    if (result.rows.length === 0) {
+        return { error: 'Project not found', status: 404 };
+    }
+    return { category: result.rows[0].category };
+}
+
+// ============================================================
+// SHARED: Delete event photo files from filesystem
+// ============================================================
+async function removePhotoFiles(client, eventType, eventId) {
+    const photosRes = await client.query(
+        'SELECT photo_url FROM event_photos WHERE event_type = $1 AND event_id = $2',
+        [eventType, eventId]
+    );
+    const uploadsDir = path.join(__dirname, '..', 'uploads');
+    for (const photo of photosRes.rows) {
+        const filePath = path.join(uploadsDir, photo.photo_url.replace('/uploads/', ''));
+        try { await fs.unlink(filePath); } catch (e) { /* file may already be missing */ }
+    }
+}
+
+// ============================================================
+// GET /api/projects/:id/handover
+// ============================================================
+router.get('/:id/handover', async (req, res, next) => {
     const { id } = req.params;
+    const client = await pool.connect();
     try {
-        const handoverRes = await pool.query(
-            'SELECT * FROM project_handovers WHERE project_id = $1',
-            [id]
+        const handoverRes = await client.query(
+            'SELECT * FROM project_handovers WHERE project_id = $1', [id]
         );
         if (handoverRes.rows.length === 0) {
             return res.status(200).json(null);
         }
-        const photos = await getEventPhotos(await pool.connect(), id);
-        const handover = attachPhotosToEvents(handoverRes.rows, photos, 'handover')[0];
+        const photos = await findEventPhotos(client, id);
+        const handover = mapPhotosToEvents(handoverRes.rows, photos, 'handover')[0];
         res.status(200).json(handover);
     } catch (err) {
-        console.error('Error fetching handover:', err);
-        res.status(500).json({ error: 'Internal server error' });
+        next(err);
+    } finally {
+        client.release();
     }
 });
 
 // ============================================================
 // POST /api/projects/:id/handover
-// Creates or updates the site handover for a project
 // ============================================================
-router.post('/:id/handover', upload.array('photos', 20), async (req, res) => {
+router.post('/:id/handover', upload.array('photos', 20), async (req, res, next) => {
     const { id } = req.params;
     const { handover_date, notes, metadata } = req.body;
 
@@ -71,21 +96,16 @@ router.post('/:id/handover', upload.array('photos', 20), async (req, res) => {
     try {
         await client.query('BEGIN');
 
-        // Check if project exists and is Works/Both
-        const projectRes = await client.query(
-            'SELECT category FROM projects WHERE id = $1', [id]
-        );
-        if (projectRes.rows.length === 0) {
+        const project = await getProjectCategory(client, id);
+        if (project.error) {
             await client.query('ROLLBACK');
-            return res.status(404).json({ error: 'Project not found' });
+            return res.status(project.status).json({ error: project.error });
         }
-        const category = projectRes.rows[0].category;
-        if (category === 'Equipment') {
+        if (project.category === 'Equipment') {
             await client.query('ROLLBACK');
             return res.status(400).json({ error: 'Equipment projects do not have site handovers' });
         }
 
-        // Upsert handover
         const upsertRes = await client.query(`
             INSERT INTO project_handovers (project_id, handover_date, notes, metadata)
             VALUES ($1, $2, $3, $4)
@@ -105,7 +125,6 @@ router.post('/:id/handover', upload.array('photos', 20), async (req, res) => {
 
         const handover = upsertRes.rows[0];
 
-        // Insert new photos
         if (req.files && req.files.length > 0) {
             for (const file of req.files) {
                 const photoUrl = `/uploads/${file.filename}`;
@@ -118,7 +137,6 @@ router.post('/:id/handover', upload.array('photos', 20), async (req, res) => {
 
         await client.query('COMMIT');
 
-        // Return with photos
         const photosRes = await pool.query(
             'SELECT id, photo_url FROM event_photos WHERE event_type = $1 AND event_id = $2 ORDER BY id',
             ['handover', handover.id]
@@ -129,8 +147,7 @@ router.post('/:id/handover', upload.array('photos', 20), async (req, res) => {
         });
     } catch (err) {
         await client.query('ROLLBACK');
-        console.error('Error saving handover:', err);
-        res.status(500).json({ error: 'Internal server error' });
+        next(err);
     } finally {
         client.release();
     }
@@ -138,15 +155,13 @@ router.post('/:id/handover', upload.array('photos', 20), async (req, res) => {
 
 // ============================================================
 // DELETE /api/projects/:id/handover
-// Deletes the site handover and its photos
 // ============================================================
-router.delete('/:id/handover', async (req, res) => {
+router.delete('/:id/handover', async (req, res, next) => {
     const { id } = req.params;
     const client = await pool.connect();
     try {
         await client.query('BEGIN');
 
-        // Get handover id
         const handoverRes = await client.query(
             'SELECT id FROM project_handovers WHERE project_id = $1', [id]
         );
@@ -156,29 +171,15 @@ router.delete('/:id/handover', async (req, res) => {
         }
         const handoverId = handoverRes.rows[0].id;
 
-        // Delete photo files
-        const photosRes = await client.query(
-            'SELECT photo_url FROM event_photos WHERE event_type = $1 AND event_id = $2',
-            ['handover', handoverId]
-        );
-        const uploadsDir = path.join(__dirname, '..', 'uploads');
-        for (const photo of photosRes.rows) {
-            const filePath = path.join(uploadsDir, photo.photo_url.replace('/uploads/', ''));
-            try { await fs.unlink(filePath); } catch (e) { /* ignore */ }
-        }
-
-        // Delete event photos (cascade would handle this if we had FK, but we use polymorphic)
+        await removePhotoFiles(client, 'handover', handoverId);
         await client.query('DELETE FROM event_photos WHERE event_type = $1 AND event_id = $2', ['handover', handoverId]);
-
-        // Delete handover
         await client.query('DELETE FROM project_handovers WHERE id = $1', [handoverId]);
 
         await client.query('COMMIT');
         res.status(200).json({ message: 'Handover deleted successfully' });
     } catch (err) {
         await client.query('ROLLBACK');
-        console.error('Error deleting handover:', err);
-        res.status(500).json({ error: 'Internal server error' });
+        next(err);
     } finally {
         client.release();
     }
@@ -186,37 +187,36 @@ router.delete('/:id/handover', async (req, res) => {
 
 // ============================================================
 // GET /api/projects/:id/inspections
-// Returns all inspections for a project (up to 4)
 // ============================================================
-router.get('/:id/inspections', async (req, res) => {
+router.get('/:id/inspections', async (req, res, next) => {
     const { id } = req.params;
+    const client = await pool.connect();
     try {
-        const inspectionsRes = await pool.query(
-            'SELECT * FROM project_inspections WHERE project_id = $1 ORDER BY inspection_number',
-            [id]
+        const inspectionsRes = await client.query(
+            'SELECT * FROM project_inspections WHERE project_id = $1 ORDER BY inspection_number', [id]
         );
         if (inspectionsRes.rows.length === 0) {
             return res.status(200).json([]);
         }
-        const photos = await getEventPhotos(await pool.connect(), id);
-        const inspections = attachPhotosToEvents(inspectionsRes.rows, photos, 'inspection');
+        const photos = await findEventPhotos(client, id);
+        const inspections = mapPhotosToEvents(inspectionsRes.rows, photos, 'inspection');
         res.status(200).json(inspections);
     } catch (err) {
-        console.error('Error fetching inspections:', err);
-        res.status(500).json({ error: 'Internal server error' });
+        next(err);
+    } finally {
+        client.release();
     }
 });
 
 // ============================================================
 // POST /api/projects/:id/inspections
-// Creates or updates an inspection for a project
 // ============================================================
-router.post('/:id/inspections', upload.array('photos', 20), async (req, res) => {
+router.post('/:id/inspections', upload.array('photos', 20), async (req, res, next) => {
     const { id } = req.params;
     const { inspection_number, inspection_date, notes, metadata } = req.body;
 
-    const inspNum = parseInt(inspection_number);
-    if (isNaN(inspNum) || inspNum < 1 || inspNum > 4) {
+    const inspectionNum = parseInt(inspection_number);
+    if (isNaN(inspectionNum) || inspectionNum < 1 || inspectionNum > 4) {
         return res.status(400).json({ error: 'Inspection number must be between 1 and 4' });
     }
 
@@ -224,21 +224,16 @@ router.post('/:id/inspections', upload.array('photos', 20), async (req, res) => 
     try {
         await client.query('BEGIN');
 
-        // Check project category
-        const projectRes = await client.query(
-            'SELECT category FROM projects WHERE id = $1', [id]
-        );
-        if (projectRes.rows.length === 0) {
+        const project = await getProjectCategory(client, id);
+        if (project.error) {
             await client.query('ROLLBACK');
-            return res.status(404).json({ error: 'Project not found' });
+            return res.status(project.status).json({ error: project.error });
         }
-        const category = projectRes.rows[0].category;
-        if (category === 'Equipment') {
+        if (project.category === 'Equipment') {
             await client.query('ROLLBACK');
             return res.status(400).json({ error: 'Equipment projects do not have inspections' });
         }
 
-        // Upsert inspection
         const upsertRes = await client.query(`
             INSERT INTO project_inspections (project_id, inspection_number, inspection_date, notes, metadata)
             VALUES ($1, $2, $3, $4, $5)
@@ -250,8 +245,7 @@ router.post('/:id/inspections', upload.array('photos', 20), async (req, res) => 
                 updated_at = NOW()
             RETURNING *
         `, [
-            id,
-            inspNum,
+            id, inspectionNum,
             inspection_date || new Date().toISOString().split('T')[0],
             notes || null,
             metadata ? JSON.stringify(metadata) : '{}'
@@ -259,7 +253,6 @@ router.post('/:id/inspections', upload.array('photos', 20), async (req, res) => 
 
         const inspection = upsertRes.rows[0];
 
-        // Insert new photos
         if (req.files && req.files.length > 0) {
             for (const file of req.files) {
                 const photoUrl = `/uploads/${file.filename}`;
@@ -272,7 +265,6 @@ router.post('/:id/inspections', upload.array('photos', 20), async (req, res) => 
 
         await client.query('COMMIT');
 
-        // Return with photos
         const photosRes = await pool.query(
             'SELECT id, photo_url FROM event_photos WHERE event_type = $1 AND event_id = $2 ORDER BY id',
             ['inspection', inspection.id]
@@ -283,8 +275,7 @@ router.post('/:id/inspections', upload.array('photos', 20), async (req, res) => 
         });
     } catch (err) {
         await client.query('ROLLBACK');
-        console.error('Error saving inspection:', err);
-        res.status(500).json({ error: 'Internal server error' });
+        next(err);
     } finally {
         client.release();
     }
@@ -292,9 +283,8 @@ router.post('/:id/inspections', upload.array('photos', 20), async (req, res) => 
 
 // ============================================================
 // DELETE /api/projects/:id/inspections/:inspectionNumber
-// Deletes a specific inspection and its photos
 // ============================================================
-router.delete('/:id/inspections/:inspectionNumber', async (req, res) => {
+router.delete('/:id/inspections/:inspectionNumber', async (req, res, next) => {
     const { id, inspectionNumber } = req.params;
     const client = await pool.connect();
     try {
@@ -310,17 +300,7 @@ router.delete('/:id/inspections/:inspectionNumber', async (req, res) => {
         }
         const inspId = inspRes.rows[0].id;
 
-        // Delete photo files
-        const photosRes = await client.query(
-            'SELECT photo_url FROM event_photos WHERE event_type = $1 AND event_id = $2',
-            ['inspection', inspId]
-        );
-        const uploadsDir = path.join(__dirname, '..', 'uploads');
-        for (const photo of photosRes.rows) {
-            const filePath = path.join(uploadsDir, photo.photo_url.replace('/uploads/', ''));
-            try { await fs.unlink(filePath); } catch (e) { /* ignore */ }
-        }
-
+        await removePhotoFiles(client, 'inspection', inspId);
         await client.query('DELETE FROM event_photos WHERE event_type = $1 AND event_id = $2', ['inspection', inspId]);
         await client.query('DELETE FROM project_inspections WHERE id = $1', [inspId]);
 
@@ -328,8 +308,7 @@ router.delete('/:id/inspections/:inspectionNumber', async (req, res) => {
         res.status(200).json({ message: 'Inspection deleted successfully' });
     } catch (err) {
         await client.query('ROLLBACK');
-        console.error('Error deleting inspection:', err);
-        res.status(500).json({ error: 'Internal server error' });
+        next(err);
     } finally {
         client.release();
     }
@@ -337,32 +316,31 @@ router.delete('/:id/inspections/:inspectionNumber', async (req, res) => {
 
 // ============================================================
 // GET /api/projects/:id/equipment-acceptance
-// Returns the equipment acceptance for a project (if exists)
 // ============================================================
-router.get('/:id/equipment-acceptance', async (req, res) => {
+router.get('/:id/equipment-acceptance', async (req, res, next) => {
     const { id } = req.params;
+    const client = await pool.connect();
     try {
-        const acceptanceRes = await pool.query(
-            'SELECT * FROM project_equipment_acceptances WHERE project_id = $1',
-            [id]
+        const acceptanceRes = await client.query(
+            'SELECT * FROM project_equipment_acceptances WHERE project_id = $1', [id]
         );
         if (acceptanceRes.rows.length === 0) {
             return res.status(200).json(null);
         }
-        const photos = await getEventPhotos(await pool.connect(), id);
-        const acceptance = attachPhotosToEvents(acceptanceRes.rows, photos, 'equipment_acceptance')[0];
+        const photos = await findEventPhotos(client, id);
+        const acceptance = mapPhotosToEvents(acceptanceRes.rows, photos, 'equipment_acceptance')[0];
         res.status(200).json(acceptance);
     } catch (err) {
-        console.error('Error fetching equipment acceptance:', err);
-        res.status(500).json({ error: 'Internal server error' });
+        next(err);
+    } finally {
+        client.release();
     }
 });
 
 // ============================================================
 // POST /api/projects/:id/equipment-acceptance
-// Creates or updates equipment acceptance for a project
 // ============================================================
-router.post('/:id/equipment-acceptance', upload.array('photos', 20), async (req, res) => {
+router.post('/:id/equipment-acceptance', upload.array('photos', 20), async (req, res, next) => {
     const { id } = req.params;
     const { acceptance_date, decision, notes, metadata } = req.body;
 
@@ -373,21 +351,16 @@ router.post('/:id/equipment-acceptance', upload.array('photos', 20), async (req,
     try {
         await client.query('BEGIN');
 
-        // Check project category
-        const projectRes = await client.query(
-            'SELECT category FROM projects WHERE id = $1', [id]
-        );
-        if (projectRes.rows.length === 0) {
+        const project = await getProjectCategory(client, id);
+        if (project.error) {
             await client.query('ROLLBACK');
-            return res.status(404).json({ error: 'Project not found' });
+            return res.status(project.status).json({ error: project.error });
         }
-        const category = projectRes.rows[0].category;
-        if (category === 'Works') {
+        if (project.category === 'Works') {
             await client.query('ROLLBACK');
             return res.status(400).json({ error: 'Works projects do not have equipment acceptance' });
         }
 
-        // Upsert acceptance
         const upsertRes = await client.query(`
             INSERT INTO project_equipment_acceptances (project_id, acceptance_date, decision, notes, metadata)
             VALUES ($1, $2, $3, $4, $5)
@@ -409,7 +382,6 @@ router.post('/:id/equipment-acceptance', upload.array('photos', 20), async (req,
 
         const acceptance = upsertRes.rows[0];
 
-        // Insert new photos
         if (req.files && req.files.length > 0) {
             for (const file of req.files) {
                 const photoUrl = `/uploads/${file.filename}`;
@@ -422,7 +394,6 @@ router.post('/:id/equipment-acceptance', upload.array('photos', 20), async (req,
 
         await client.query('COMMIT');
 
-        // Return with photos
         const photosRes = await pool.query(
             'SELECT id, photo_url FROM event_photos WHERE event_type = $1 AND event_id = $2 ORDER BY id',
             ['equipment_acceptance', acceptance.id]
@@ -433,8 +404,7 @@ router.post('/:id/equipment-acceptance', upload.array('photos', 20), async (req,
         });
     } catch (err) {
         await client.query('ROLLBACK');
-        console.error('Error saving equipment acceptance:', err);
-        res.status(500).json({ error: 'Internal server error' });
+        next(err);
     } finally {
         client.release();
     }
@@ -442,9 +412,8 @@ router.post('/:id/equipment-acceptance', upload.array('photos', 20), async (req,
 
 // ============================================================
 // DELETE /api/projects/:id/equipment-acceptance
-// Deletes equipment acceptance and its photos
 // ============================================================
-router.delete('/:id/equipment-acceptance', async (req, res) => {
+router.delete('/:id/equipment-acceptance', async (req, res, next) => {
     const { id } = req.params;
     const client = await pool.connect();
     try {
@@ -459,17 +428,7 @@ router.delete('/:id/equipment-acceptance', async (req, res) => {
         }
         const acceptanceId = acceptanceRes.rows[0].id;
 
-        // Delete photo files
-        const photosRes = await client.query(
-            'SELECT photo_url FROM event_photos WHERE event_type = $1 AND event_id = $2',
-            ['equipment_acceptance', acceptanceId]
-        );
-        const uploadsDir = path.join(__dirname, '..', 'uploads');
-        for (const photo of photosRes.rows) {
-            const filePath = path.join(uploadsDir, photo.photo_url.replace('/uploads/', ''));
-            try { await fs.unlink(filePath); } catch (e) { /* ignore */ }
-        }
-
+        await removePhotoFiles(client, 'equipment_acceptance', acceptanceId);
         await client.query('DELETE FROM event_photos WHERE event_type = $1 AND event_id = $2', ['equipment_acceptance', acceptanceId]);
         await client.query('DELETE FROM project_equipment_acceptances WHERE id = $1', [acceptanceId]);
 
@@ -477,8 +436,7 @@ router.delete('/:id/equipment-acceptance', async (req, res) => {
         res.status(200).json({ message: 'Equipment acceptance deleted successfully' });
     } catch (err) {
         await client.query('ROLLBACK');
-        console.error('Error deleting equipment acceptance:', err);
-        res.status(500).json({ error: 'Internal server error' });
+        next(err);
     } finally {
         client.release();
     }
@@ -486,28 +444,30 @@ router.delete('/:id/equipment-acceptance', async (req, res) => {
 
 // ============================================================
 // DELETE /api/event-photos/:photoId
-// Deletes a single event photo (shared across all event types)
 // ============================================================
-router.delete('/event-photos/:photoId', async (req, res) => {
+router.delete('/event-photos/:photoId', async (req, res, next) => {
     const { photoId } = req.params;
+    const client = await pool.connect();
     try {
-        const photoRes = await pool.query(
-            'SELECT photo_url FROM event_photos WHERE id = $1', [photoId]
+        const photoRes = await client.query(
+            'SELECT photo_url, event_type, event_id FROM event_photos WHERE id = $1', [photoId]
         );
         if (photoRes.rows.length === 0) {
             return res.status(404).json({ error: 'Photo not found' });
         }
 
-        // Delete file
-        const uploadsDir = path.join(__dirname, '..', 'uploads');
-        const filePath = path.join(uploadsDir, photoRes.rows[0].photo_url.replace('/uploads/', ''));
-        try { await fs.unlink(filePath); } catch (e) { /* ignore */ }
+        const { photo_url, event_type, event_id } = photoRes.rows[0];
+        await client.query('DELETE FROM event_photos WHERE id = $1', [photoId]);
 
-        await pool.query('DELETE FROM event_photos WHERE id = $1', [photoId]);
-        res.status(200).json({ message: 'Photo deleted successfully' });
+        const uploadsDir = path.join(__dirname, '..', 'uploads');
+        const filePath = path.join(uploadsDir, photo_url.replace('/uploads/', ''));
+        try { await fs.unlink(filePath); } catch (e) { /* file may already be missing */ }
+
+        res.status(200).json({ message: 'Event photo deleted successfully' });
     } catch (err) {
-        console.error('Error deleting event photo:', err);
-        res.status(500).json({ error: 'Internal server error' });
+        next(err);
+    } finally {
+        client.release();
     }
 });
 
